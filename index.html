@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Hockey Performance Coach</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="stylesheet" href="style.css">
+  <meta name="theme-color" content="#121212">
+  <link rel="icon" href="icons/icon-192.png">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+</head>
+<body>
+  <header>
+    <h1>🏒 Hockey Coach</h1>
+    <nav id="tabs">
+      <button data-tab="profiles">Профили</button>
+      <button data-tab="analysis">Анализ ФХР</button>
+      <button data-tab="lines">Состав звеньев</button>
+      <button data-tab="train">Тренировки</button>
+    </nav>
+    <div id="authBlock">
+      <button id="loginBtn">Войти / Регистрация</button>
+      <span id="userEmail"></span>
+<button id="logoutBtn" class="hidden" onclick="logout()">Выйти</button>
+    </div>
+  </header>
+
+  <main id="content"></main>
+
+  <script src="app.js"></script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('sw.js').catch(err => console.error('SW failed:', err));
+      });
+    }
+  </script>
+</body>
+</html>
