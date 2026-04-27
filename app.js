@@ -1,34 +1,32 @@
 // ====================== HOCKEY PERFORMANCE COACH ======================
-// Версия: 1.1.0 – Добавлено фото игрока (сжатие, камера)
+// Версия: 2.0.0 — Добавлена облачная синхронизация через Firebase Auth и Firestore.
 // Функции: профили, нормативы ФХР, расчёт готовности, радар,
 //          подбор звеньев по хвату и стилю, планы тренировок.
-// Данные хранятся в localStorage. Принудительная синхронизация – заглушка.
 
 'use strict';
 
-/*********************** СОСТОЯНИЕ *************************/
-let players = JSON.parse(localStorage.getItem('hockey_players') || '[]');
-let currentUser = JSON.parse(localStorage.getItem('currentUser') || 'null');
+/*********************** FIREBASE ИНИЦИАЛИЗАЦИЯ *************************/
+// 🔥 ВСТАВЬТЕ СЮДА КОНФИГУРАЦИЮ ИЗ КОНСОЛИ FIREBASE 🔥
+const firebaseConfig = {
+  apiKey: "AIzaSy...",
+  authDomain: "your-project.firebaseapp.com",
+  projectId: "your-project",
+  storageBucket: "your-project.appspot.com",
+  messagingSenderId: "123456789",
+  appId: "1:123456789:web:abc123..."
+};
+
+// Инициализация Firebase
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db = firebase.firestore();
+
+/*********************** ГЛОБАЛЬНОЕ СОСТОЯНИЕ ***************************/
+let players = []; // Теперь это локальный кэш данных из Firestore
+let currentUser = null;
 let activeTab = 'profiles';
-let currentEditingPlayerId = null; // для фото
-
-/*********************** АВТОРИЗАЦИЯ (заглушка) *************/
-function simulateAuth() {
-  const email = prompt('Введите email (например, coach@hockey.ru):');
-  if (!email) return;
-  currentUser = { email };
-  localStorage.setItem('currentUser', JSON.stringify(currentUser));
-  updateUI();
-  showToast('Вход выполнен (облачная синхронизация активна)');
-}
-
-function logout() {
-  if (confirm('Выйти? Несохранённые данные могут быть потеряны.')) {
-    currentUser = null;
-    localStorage.removeItem('currentUser');
-    updateUI();
-  }
-}
+let currentEditingPlayerId = null;
+let unsubscribeFirestore = null; // Для отписки от слушателя Firestore
 
 /*********************** НОРМАТИВЫ ФХР ***********************/
 const fhrNorms = {
@@ -38,46 +36,7 @@ const fhrNorms = {
   'ВСМ': { speed: 6.0, strength: 100, endurance: 360, skating: 6, shooting: 5, technique: 5, flexibility: 7, physique: 6 }
 };
 
-/*********************** ГЕНЕРАЦИЯ ДЕМО ДАННЫХ **************/
-function seedDemoData() {
-  if (players.length > 0) return;
-  players = [
-    {
-      id: 1, name: 'Иван Петров', birth: '2010-05-12', position: 'нападающий', stick: 'левый',
-      weight: 55, height: 165, photo: null,
-      tests: { speed: 7.2, strength: 45, endurance: 200, skating: 3, shooting: 2, technique: 3, flexibility: 5, physique: 3 }
-    },
-    {
-      id: 2, name: 'Алексей Смирнов', birth: '2010-08-22', position: 'нападающий', stick: 'правый',
-      weight: 60, height: 170, photo: null,
-      tests: { speed: 6.8, strength: 55, endurance: 220, skating: 4, shooting: 3, technique: 3, flexibility: 4, physique: 4 }
-    },
-    {
-      id: 3, name: 'Дмитрий Волков', birth: '2009-11-03', position: 'защитник', stick: 'левый',
-      weight: 70, height: 178, photo: null,
-      tests: { speed: 7.0, strength: 65, endurance: 240, skating: 4, shooting: 4, technique: 3, flexibility: 5, physique: 4 }
-    },
-    {
-      id: 4, name: 'Матвей Кузнецов', birth: '2008-03-17', position: 'нападающий', stick: 'левый',
-      weight: 72, height: 182, photo: null,
-      tests: { speed: 6.5, strength: 75, endurance: 280, skating: 5, shooting: 4, technique: 4, flexibility: 6, physique: 5 }
-    }
-  ];
-  saveData();
-}
-
-/*********************** УТИЛИТЫ *****************************/
-function saveData() {
-  localStorage.setItem('hockey_players', JSON.stringify(players));
-  syncToCloud();
-}
-
-function syncToCloud() {
-  if (!navigator.onLine) return;
-  // Здесь будет вызов облачной синхронизации
-  console.log('Синхронизация с облаком выполнена (заглушка)');
-}
-
+/*********************** УТИЛИТЫ ****************************************/
 function showToast(msg) {
   const toast = document.createElement('div');
   toast.className = 'card';
@@ -128,84 +87,130 @@ function determineStyle(player) {
   return 'двусторонний';
 }
 
-/*********************** ФОТО ********************************/
-async function compressImage(file, maxWidth = 400, maxHeight = 400, quality = 0.7) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const img = new Image();
-      img.onload = () => {
-        let w = img.width, h = img.height;
-        if (w > h) {
-          if (w > maxWidth) { h *= maxWidth / w; w = maxWidth; }
-        } else {
-          if (h > maxHeight) { w *= maxHeight / h; h = maxHeight; }
-        }
-        const canvas = document.createElement('canvas');
-        canvas.width = w;
-        canvas.height = h;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(img, 0, 0, w, h);
-        resolve(canvas.toDataURL('image/jpeg', quality));
-      };
-      img.src = e.target.result;
-    };
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
+/*********************** АВТОРИЗАЦИЯ ************************************/
+// Наблюдатель состояния аутентификации
+auth.onAuthStateChanged(async (user) => {
+  if (user) {
+    currentUser = user;
+    console.log('Пользователь вошел:', user.email);
+    await loadPlayersFromFirestore(); // Загружаем данные из облака
+    showToast(`Добро пожаловать, ${user.email}!`);
+  } else {
+    currentUser = null;
+    players = [];
+    console.log('Пользователь вышел');
+  }
+  updateUI();
+});
+
+// Функция регистрации
+async function signUp(email, password) {
+  try {
+    await auth.createUserWithEmailAndPassword(email, password);
+    showToast('Регистрация успешна!');
+  } catch (error) {
+    showToast(`Ошибка регистрации: ${error.message}`);
+  }
+}
+
+// Функция входа
+async function signIn(email, password) {
+  try {
+    await auth.signInWithEmailAndPassword(email, password);
+    showToast('Вход выполнен!');
+  } catch (error) {
+    showToast(`Ошибка входа: ${error.message}`);
+  }
+}
+
+// Функция выхода
+async function logout() {
+  if (confirm('Выйти?')) {
+    await auth.signOut();
+  }
+}
+
+/*********************** РАБОТА С ДАННЫМИ В FIRESTORE ******************/
+// Загрузка данных из Firestore
+async function loadPlayersFromFirestore() {
+  if (!currentUser) return;
+  // Отписываемся от предыдущего слушателя, если он был
+  if (unsubscribeFirestore) unsubscribeFirestore();
+
+  const playersRef = db.collection('users').doc(currentUser.uid).collection('players');
+  // Слушаем изменения в реальном времени
+  unsubscribeFirestore = playersRef.onSnapshot((snapshot) => {
+    players = [];
+    snapshot.forEach((doc) => {
+      players.push({ id: doc.id, ...doc.data() });
+    });
+    console.log('Данные игроков обновлены из облака');
+    updateUI();
+  }, (error) => {
+    console.error('Ошибка загрузки данных:', error);
+    showToast('Ошибка загрузки данных с сервера');
   });
 }
 
-function requestPhotoForPlayer(id) {
-  currentEditingPlayerId = id;
-  document.getElementById('photoInput').click();
+// Сохранение/обновление игрока в Firestore
+async function savePlayerToFirestore(player) {
+  if (!currentUser) return;
+  const playerRef = db.collection('users').doc(currentUser.uid).collection('players').doc(String(player.id));
+  try {
+    await playerRef.set(player);
+    console.log('Игрок сохранен в облаке');
+  } catch (error) {
+    console.error('Ошибка сохранения игрока:', error);
+    showToast('Ошибка сохранения данных');
+  }
 }
 
-// Обработчик выбора файла
-document.addEventListener('DOMContentLoaded', () => {
-  const photoInput = document.getElementById('photoInput');
-  if (photoInput) {
-    photoInput.addEventListener('change', async (event) => {
-      const file = event.target.files[0];
-      if (!file) return;
-      try {
-        const compressedDataUrl = await compressImage(file, 400, 400, 0.7);
-        const playerId = currentEditingPlayerId;
-        if (playerId) {
-          const player = players.find(p => p.id === playerId);
-          if (player) {
-            player.photo = compressedDataUrl;
-            saveData();
-            updateUI();
-            showToast('Фото обновлено');
-          }
-        }
-      } catch (err) {
-        showToast('Ошибка загрузки фото: ' + err.message);
-      }
-      event.target.value = ''; // сброс, чтобы можно было выбрать то же фото повторно
-    });
+// Удаление игрока из Firestore
+async function deletePlayerFromFirestore(playerId) {
+  if (!currentUser) return;
+  const playerRef = db.collection('users').doc(currentUser.uid).collection('players').doc(String(playerId));
+  try {
+    await playerRef.delete();
+    console.log('Игрок удален из облака');
+  } catch (error) {
+    console.error('Ошибка удаления игрока:', error);
+    showToast('Ошибка удаления данных');
   }
-});
+}
 
-/*********************** ИНТЕРФЕЙС ***************************/
+/*********************** ИНТЕРФЕЙС **************************************/
 function updateUI() {
-  document.getElementById('userEmail').textContent = currentUser ? currentUser.email : '';
-  document.getElementById('loginBtn').style.display = currentUser ? 'none' : 'inline-block';
-  document.getElementById('logoutBtn').classList.toggle('hidden', !currentUser);
+  const authForm = document.getElementById('authForm');
+  const userInfo = document.getElementById('userInfo');
+  const loginBtn = document.getElementById('loginBtn');
+
+  if (currentUser) {
+    // Пользователь авторизован
+    if (authForm) authForm.style.display = 'none';
+    if (userInfo) {
+      userInfo.style.display = 'block';
+      document.getElementById('userEmail').textContent = currentUser.email;
+    }
+  } else {
+    // Пользователь не авторизован
+    if (authForm) authForm.style.display = 'block';
+    if (userInfo) userInfo.style.display = 'none';
+  }
+
   renderTab(activeTab);
 }
 
 function switchTab(tab) {
   activeTab = tab;
   document.querySelectorAll('nav button').forEach(btn => btn.classList.remove('active'));
-  document.querySelector(`[data-tab="${tab}"]`).classList.add('active');
+  document.querySelector(`[data-tab="${tab}"]`)?.classList.add('active');
   updateUI();
 }
 
 function renderTab(tab) {
   const main = document.getElementById('content');
   if (!currentUser) {
-    main.innerHTML = `<div class="card"><p>Пожалуйста, войдите, чтобы использовать приложение.</p></div>`;
+    main.innerHTML = `<div class="card"><p>Пожалуйста, войдите или зарегистрируйтесь, чтобы использовать приложение.</p></div>`;
     return;
   }
   switch (tab) {
@@ -246,7 +251,7 @@ function renderProfiles(container) {
   container.innerHTML = html;
 }
 
-function addPlayerPrompt() {
+async function addPlayerPrompt() {
   const name = prompt('ФИО:');
   if (!name) return;
   const birth = prompt('Дата рождения (ГГГГ-ММ-ДД):');
@@ -273,13 +278,11 @@ function addPlayerPrompt() {
     photo: null,
     tests: { speed, strength, endurance, skating, shooting, technique, flexibility, physique }
   };
-  players.push(newPlayer);
-  saveData();
-  updateUI();
+  await savePlayerToFirestore(newPlayer);
   showToast('Игрок добавлен');
 }
 
-function editPlayer(id) {
+async function editPlayer(id) {
   const p = players.find(p => p.id === id);
   if (!p) return;
   const name = prompt('ФИО:', p.name);
@@ -304,16 +307,13 @@ function editPlayer(id) {
   if (!isNaN(flexibility)) p.tests.flexibility = flexibility;
   const physique = +prompt('Телосложение:', p.tests.physique);
   if (!isNaN(physique)) p.tests.physique = physique;
-  // хват и позицию можно редактировать аналогично, для простоты опускаем
-  saveData();
-  updateUI();
+  await savePlayerToFirestore(p);
   showToast('Данные обновлены');
 }
 
-function deletePlayer(id) {
-  players = players.filter(p => p.id !== id);
-  saveData();
-  updateUI();
+async function deletePlayer(id) {
+  await deletePlayerFromFirestore(id);
+  showToast('Игрок удалён');
 }
 
 // ---------- АНАЛИЗ ФХР + радар ----------
@@ -389,7 +389,7 @@ function renderLines(container) {
   let html = '<div class="card"><h2>Рекомендуемые сочетания</h2>';
   const bestTrio = findBestTrio(forwards);
   if (bestTrio) {
-    html += `<p><strong>Ударное звено:</strong> ${bestTrio.map(p => `${p.name} (${p.stick[0].toUpperCase()}${p.stick.slice(1)} хват)`).join(' – ')}</p>`;
+    html += `<p><strong>Ударное звено:</strong> ${bestTrio.map(p => `${p.name} (${p.stick?.[0]?.toUpperCase() || ''}${p.stick?.slice(1) || ''} хват)`).join(' – ')}</p>`;
   }
   const bestD = findBestDefPair(defs);
   if (bestD) {
@@ -402,11 +402,11 @@ function renderLines(container) {
 function findBestTrio(forwards) {
   if (forwards.length < 3) return null;
   const combos = [];
-  for (let i=0; i<forwards.length; i++) {
-    for (let j=0; j<forwards.length; j++) {
-      if (j===i) continue;
-      for (let k=0; k<forwards.length; k++) {
-        if (k===i || k===j) continue;
+  for (let i = 0; i < forwards.length; i++) {
+    for (let j = 0; j < forwards.length; j++) {
+      if (j === i) continue;
+      for (let k = 0; k < forwards.length; k++) {
+        if (k === i || k === j) continue;
         const sticks = [forwards[i].stick, forwards[j].stick, forwards[k].stick];
         if (sticks[0] !== sticks[1] && sticks[1] !== sticks[2]) {
           combos.push([forwards[i], forwards[j], forwards[k]]);
@@ -418,7 +418,7 @@ function findBestTrio(forwards) {
   let best = combos[0];
   let bestScore = 0;
   combos.forEach(trio => {
-    let score = trio.reduce((s,p) => s + calculateReadiness(p), 0);
+    let score = trio.reduce((s, p) => s + calculateReadiness(p), 0);
     if (score > bestScore) {
       bestScore = score;
       best = trio;
@@ -429,19 +429,19 @@ function findBestTrio(forwards) {
 
 function findBestDefPair(defs) {
   if (defs.length < 2) return null;
-  for (let i=0; i<defs.length; i++) {
-    for (let j=i+1; j<defs.length; j++) {
+  for (let i = 0; i < defs.length; i++) {
+    for (let j = i + 1; j < defs.length; j++) {
       if (defs[i].stick !== defs[j].stick) return [defs[i], defs[j]];
     }
   }
-  return [defs[0], defs[1]]; // fallback
+  return [defs[0], defs[1]];
 }
 
 // ---------- ПЛАНЫ ТРЕНИРОВОК ----------
 function renderTraining(container) {
   let html = '<div class="card"><h2>Недельный план тренировок</h2>';
   const days = ['Пн: Скорость + катание', 'Вт: Силовая', 'Ср: Техника + броски', 'Чт: Игровая практика', 'Пт: Взрывная сила', 'Сб: Восстановление', 'Вс: Отдых'];
-  days.forEach((d,i) => html += `<p>${i+1}. ${d}</p>`);
+  days.forEach((d, i) => html += `<p>${i + 1}. ${d}</p>`);
   html += '<button onclick="generateTestPlan()">План тестирования (3 дня)</button>';
   html += '</div>';
   container.innerHTML = html;
@@ -452,12 +452,82 @@ function generateTestPlan() {
   alert(plan);
 }
 
-// ================== ИНИЦИАЛИЗАЦИЯ ==================
+/*********************** ФОТО ******************************************/
+async function compressImage(file, maxWidth = 400, maxHeight = 400, quality = 0.7) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        let w = img.width, h = img.height;
+        if (w > h) {
+          if (w > maxWidth) { h *= maxWidth / w; w = maxWidth; }
+        } else {
+          if (h > maxHeight) { w *= maxHeight / h; h = maxHeight; }
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.src = e.target.result;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+function requestPhotoForPlayer(id) {
+  currentEditingPlayerId = id;
+  document.getElementById('photoInput').click();
+}
+
+// ================== ИНИЦИАЛИЗАЦИЯ СОБЫТИЙ ============================
 document.addEventListener('DOMContentLoaded', () => {
-  seedDemoData();
+  // Навигация
   document.querySelectorAll('nav button').forEach(btn => {
     btn.addEventListener('click', () => switchTab(btn.dataset.tab));
   });
-  document.getElementById('loginBtn').addEventListener('click', simulateAuth);
+
+  // Кнопки аутентификации
+  document.getElementById('signUpBtn')?.addEventListener('click', () => {
+    const email = document.getElementById('authEmail').value;
+    const password = document.getElementById('authPassword').value;
+    signUp(email, password);
+  });
+
+  document.getElementById('signInBtn')?.addEventListener('click', () => {
+    const email = document.getElementById('authEmail').value;
+    const password = document.getElementById('authPassword').value;
+    signIn(email, password);
+  });
+
+  // Обработчик загрузки фото
+  const photoInput = document.getElementById('photoInput');
+  if (photoInput) {
+    photoInput.addEventListener('change', async (event) => {
+      const file = event.target.files[0];
+      if (!file) return;
+      try {
+        const compressedDataUrl = await compressImage(file, 400, 400, 0.7);
+        const playerId = currentEditingPlayerId;
+        if (playerId) {
+          const player = players.find(p => p.id === playerId);
+          if (player) {
+            player.photo = compressedDataUrl;
+            await savePlayerToFirestore(player);
+            showToast('Фото обновлено');
+          }
+        }
+      } catch (err) {
+        showToast('Ошибка загрузки фото: ' + err.message);
+      }
+      event.target.value = '';
+    });
+  }
+
+  // Первоначальная отрисовка интерфейса
   updateUI();
 });
