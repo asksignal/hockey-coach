@@ -65,6 +65,31 @@ function seedDemoData() {
 }
 
 /*********************** УТИЛИТЫ *****************************/
+function compressImage(file, maxWidth = 300, maxHeight = 300, quality = 0.6) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        let w = img.width, h = img.height;
+        if (w > h) {
+          if (w > maxWidth) { h *= maxWidth / w; w = maxWidth; }
+        } else {
+          if (h > maxHeight) { w *= maxHeight / h; h = maxHeight; }
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.src = e.target.result;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
 function saveData() {
   localStorage.setItem('hockey_players', JSON.stringify(players));
   // Здесь вызов синхронизации с облаком (если сеть есть)
@@ -175,6 +200,28 @@ function renderProfiles(container) {
     </div>`;
   });
   container.innerHTML = html;
+  players.forEach(p => {
+  const readiness = calculateReadiness(p);
+  const photoHtml = p.photo 
+    ? `<img src="${p.photo}" alt="photo" style="width:60px;height:60px;border-radius:50%;object-fit:cover;margin-right:10px;">` 
+    : `<div style="width:60px;height:60px;border-radius:50%;background:#444;display:inline-flex;align-items:center;justify-content:center;margin-right:10px;">📷</div>`;
+  
+  html += `
+  <div class="card">
+    <div style="display:flex;align-items:center;">
+      ${photoHtml}
+      <div>
+        <strong>${p.name}</strong> (${p.position})<br>
+        <small>${getAgeGroup(p.birth)} | Хват: ${p.stick}</small>
+        <div class="progress-bar"><div class="progress-fill" style="width:${readiness}%"></div></div>
+        <div>Готовность: ${readiness}%</div>
+        <button onclick="editPlayer(${p.id})">✏️</button>
+        <button onclick="deletePlayer(${p.id})">🗑️</button>
+        <button onclick="requestPhotoForPlayer(${p.id})">📸 Фото</button>
+      </div>
+    </div>
+  </div>`;
+});
 }
 
 function addPlayerPrompt() {
@@ -388,7 +435,27 @@ function generateTestPlan() {
   const plan = `План тестирования:\n1 день: Разминка 15 мин, бег 30м, челночный бег, заминка.\n2 день: Жим лёжа, приседания, подтягивания.\n3 день: Катание, броски, гибкость.`;
   alert(plan);
 }
-
+document.getElementById('photoInput').addEventListener('change', async (event) => {
+  const file = event.target.files[0];
+  if (!file) return;
+  try {
+    const compressedDataUrl = await compressImage(file, 400, 400, 0.7); // фото 400x400
+    const playerId = currentEditingPlayerId;
+    if (playerId) {
+      const player = players.find(p => p.id === playerId);
+      if (player) {
+        player.photo = compressedDataUrl;
+        saveData();
+        updateUI();
+        showToast('Фото обновлено');
+      }
+    }
+  } catch (err) {
+    showToast('Ошибка загрузки фото: ' + err.message);
+  }
+  // Очищаем поле, чтобы можно было повторно выбрать тот же файл
+  event.target.value = '';
+});
 // ================== ИНИЦИАЛИЗАЦИЯ ==================
 document.addEventListener('DOMContentLoaded', () => {
   seedDemoData();
@@ -399,4 +466,8 @@ document.addEventListener('DOMContentLoaded', () => {
   // Кнопка выхода появится в authBlock динамически, для простоты добавим в разметку:
   // (обновим HTML)
   updateUI();
+  function requestPhotoForPlayer(id) {
+  currentEditingPlayerId = id;
+  document.getElementById('photoInput').click();
+}
 });
