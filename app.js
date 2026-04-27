@@ -1,10 +1,8 @@
-let currentEditingPlayerId = null; // для временного хранения ID редактируемого игрока при смене фото
 // ====================== HOCKEY PERFORMANCE COACH ======================
-// Версия: 1.0.0 - Полный локальный PWA
-// Функции: профили, нормативы ФХР, расчёт процента готовности, радар,
+// Версия: 1.1.0 – Добавлено фото игрока (сжатие, камера)
+// Функции: профили, нормативы ФХР, расчёт готовности, радар,
 //          подбор звеньев по хвату и стилю, планы тренировок.
-// Данные хранятся в localStorage (можно заменить на IndexedDB).
-// Принудительная синхронизация – заглушка, в реальном проекте используется Firebase.
+// Данные хранятся в localStorage. Принудительная синхронизация – заглушка.
 
 'use strict';
 
@@ -12,6 +10,7 @@ let currentEditingPlayerId = null; // для временного хранени
 let players = JSON.parse(localStorage.getItem('hockey_players') || '[]');
 let currentUser = JSON.parse(localStorage.getItem('currentUser') || 'null');
 let activeTab = 'profiles';
+let currentEditingPlayerId = null; // для фото
 
 /*********************** АВТОРИЗАЦИЯ (заглушка) *************/
 function simulateAuth() {
@@ -20,7 +19,6 @@ function simulateAuth() {
   currentUser = { email };
   localStorage.setItem('currentUser', JSON.stringify(currentUser));
   updateUI();
-  // TODO: здесь будет вызов Firebase Auth и запрос к облаку
   showToast('Вход выполнен (облачная синхронизация активна)');
 }
 
@@ -32,7 +30,7 @@ function logout() {
   }
 }
 
-/*********************** НОРМАТИВЫ ФХР (упрощённые) *********/
+/*********************** НОРМАТИВЫ ФХР ***********************/
 const fhrNorms = {
   'НП': { speed: 7.5, strength: 40, endurance: 180, skating: 3, shooting: 2, technique: 2, flexibility: 4, physique: 3 },
   'УТ': { speed: 7.0, strength: 60, endurance: 240, skating: 4, shooting: 3, technique: 3, flexibility: 5, physique: 4 },
@@ -40,65 +38,43 @@ const fhrNorms = {
   'ВСМ': { speed: 6.0, strength: 100, endurance: 360, skating: 6, shooting: 5, technique: 5, flexibility: 7, physique: 6 }
 };
 
-/*********************** ГЕНЕРАЦИЯ ТЕСТОВЫХ ДАННЫХ (для демо) */
+/*********************** ГЕНЕРАЦИЯ ДЕМО ДАННЫХ **************/
 function seedDemoData() {
   if (players.length > 0) return;
   players = [
     {
       id: 1, name: 'Иван Петров', birth: '2010-05-12', position: 'нападающий', stick: 'левый',
-      weight: 55, height: 165, tests: { speed: 7.2, strength: 45, endurance: 200, skating: 3, shooting: 2, technique: 3, flexibility: 5, physique: 3 }
+      weight: 55, height: 165, photo: null,
+      tests: { speed: 7.2, strength: 45, endurance: 200, skating: 3, shooting: 2, technique: 3, flexibility: 5, physique: 3 }
     },
     {
       id: 2, name: 'Алексей Смирнов', birth: '2010-08-22', position: 'нападающий', stick: 'правый',
-      weight: 60, height: 170, tests: { speed: 6.8, strength: 55, endurance: 220, skating: 4, shooting: 3, technique: 3, flexibility: 4, physique: 4 }
+      weight: 60, height: 170, photo: null,
+      tests: { speed: 6.8, strength: 55, endurance: 220, skating: 4, shooting: 3, technique: 3, flexibility: 4, physique: 4 }
     },
     {
       id: 3, name: 'Дмитрий Волков', birth: '2009-11-03', position: 'защитник', stick: 'левый',
-      weight: 70, height: 178, tests: { speed: 7.0, strength: 65, endurance: 240, skating: 4, shooting: 4, technique: 3, flexibility: 5, physique: 4 }
+      weight: 70, height: 178, photo: null,
+      tests: { speed: 7.0, strength: 65, endurance: 240, skating: 4, shooting: 4, technique: 3, flexibility: 5, physique: 4 }
     },
     {
       id: 4, name: 'Матвей Кузнецов', birth: '2008-03-17', position: 'нападающий', stick: 'левый',
-      weight: 72, height: 182, tests: { speed: 6.5, strength: 75, endurance: 280, skating: 5, shooting: 4, technique: 4, flexibility: 6, physique: 5 }
+      weight: 72, height: 182, photo: null,
+      tests: { speed: 6.5, strength: 75, endurance: 280, skating: 5, shooting: 4, technique: 4, flexibility: 6, physique: 5 }
     }
   ];
   saveData();
 }
 
 /*********************** УТИЛИТЫ *****************************/
-function compressImage(file, maxWidth = 300, maxHeight = 300, quality = 0.6) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const img = new Image();
-      img.onload = () => {
-        let w = img.width, h = img.height;
-        if (w > h) {
-          if (w > maxWidth) { h *= maxWidth / w; w = maxWidth; }
-        } else {
-          if (h > maxHeight) { w *= maxHeight / h; h = maxHeight; }
-        }
-        const canvas = document.createElement('canvas');
-        canvas.width = w;
-        canvas.height = h;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(img, 0, 0, w, h);
-        resolve(canvas.toDataURL('image/jpeg', quality));
-      };
-      img.src = e.target.result;
-    };
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-}
 function saveData() {
   localStorage.setItem('hockey_players', JSON.stringify(players));
-  // Здесь вызов синхронизации с облаком (если сеть есть)
   syncToCloud();
 }
 
 function syncToCloud() {
   if (!navigator.onLine) return;
-  // Реальная реализация: зашифровать данные и отправить в Firebase Firestore
+  // Здесь будет вызов облачной синхронизации
   console.log('Синхронизация с облаком выполнена (заглушка)');
 }
 
@@ -134,9 +110,8 @@ function calculateReadiness(player) {
   keys.forEach(k => {
     const val = player.tests[k] || 0;
     const norm = norms[k];
-    // Чем меньше время/результат лучше – для бега/скорости инвертируем
-    if (['speed','endurance'].includes(k)) {
-      total += Math.min(1, norm / val); // норма 7.0, если пробежал 7.2 – 7/7.2=0.97
+    if (['speed', 'endurance'].includes(k)) {
+      total += Math.min(1, norm / val);
     } else {
       total += Math.min(1, val / norm);
     }
@@ -144,7 +119,6 @@ function calculateReadiness(player) {
   return Math.round((total / keys.length) * 100);
 }
 
-// Определение стиля игрока на основе тестов
 function determineStyle(player) {
   if (!player.tests) return 'двусторонний';
   const { strength, speed, shooting, technique } = player.tests;
@@ -154,10 +128,70 @@ function determineStyle(player) {
   return 'двусторонний';
 }
 
-/*********************** ОТРИСОВКА ИНТЕРФЕЙСА ***************/
+/*********************** ФОТО ********************************/
+async function compressImage(file, maxWidth = 400, maxHeight = 400, quality = 0.7) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        let w = img.width, h = img.height;
+        if (w > h) {
+          if (w > maxWidth) { h *= maxWidth / w; w = maxWidth; }
+        } else {
+          if (h > maxHeight) { w *= maxHeight / h; h = maxHeight; }
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.src = e.target.result;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+function requestPhotoForPlayer(id) {
+  currentEditingPlayerId = id;
+  document.getElementById('photoInput').click();
+}
+
+// Обработчик выбора файла
+document.addEventListener('DOMContentLoaded', () => {
+  const photoInput = document.getElementById('photoInput');
+  if (photoInput) {
+    photoInput.addEventListener('change', async (event) => {
+      const file = event.target.files[0];
+      if (!file) return;
+      try {
+        const compressedDataUrl = await compressImage(file, 400, 400, 0.7);
+        const playerId = currentEditingPlayerId;
+        if (playerId) {
+          const player = players.find(p => p.id === playerId);
+          if (player) {
+            player.photo = compressedDataUrl;
+            saveData();
+            updateUI();
+            showToast('Фото обновлено');
+          }
+        }
+      } catch (err) {
+        showToast('Ошибка загрузки фото: ' + err.message);
+      }
+      event.target.value = ''; // сброс, чтобы можно было выбрать то же фото повторно
+    });
+  }
+});
+
+/*********************** ИНТЕРФЕЙС ***************************/
 function updateUI() {
   document.getElementById('userEmail').textContent = currentUser ? currentUser.email : '';
   document.getElementById('loginBtn').style.display = currentUser ? 'none' : 'inline-block';
+  document.getElementById('logoutBtn').classList.toggle('hidden', !currentUser);
   renderTab(activeTab);
 }
 
@@ -183,45 +217,33 @@ function renderTab(tab) {
   }
 }
 
-// ---------- ПРОФИЛИ ----------
+// ---------- ПРОФИЛИ (с фото) ----------
 function renderProfiles(container) {
   let html = `<div class="card"><h2>Игроки</h2>`;
   html += `<button onclick="addPlayerPrompt()">+ Добавить игрока</button></div>`;
   players.forEach(p => {
     const readiness = calculateReadiness(p);
+    const photoHtml = p.photo
+      ? `<img src="${p.photo}" alt="photo" style="width:60px;height:60px;border-radius:50%;object-fit:cover;margin-right:10px;">`
+      : `<div style="width:60px;height:60px;border-radius:50%;background:#444;display:inline-flex;align-items:center;justify-content:center;margin-right:10px;">📷</div>`;
+
     html += `
     <div class="card">
-      <strong>${p.name}</strong> (${p.position})<br>
-      <small>${getAgeGroup(p.birth)} | Хват: ${p.stick}</small>
-      <div class="progress-bar"><div class="progress-fill" style="width:${readiness}%"></div></div>
-      <div>Готовность: ${readiness}%</div>
-      <button onclick="editPlayer(${p.id})">✏️</button>
-      <button onclick="deletePlayer(${p.id})">🗑️</button>
+      <div style="display:flex;align-items:center;">
+        ${photoHtml}
+        <div style="flex:1;">
+          <strong>${p.name}</strong> (${p.position})<br>
+          <small>${getAgeGroup(p.birth)} | Хват: ${p.stick}</small>
+          <div class="progress-bar"><div class="progress-fill" style="width:${readiness}%"></div></div>
+          <div>Готовность: ${readiness}%</div>
+          <button onclick="editPlayer(${p.id})">✏️</button>
+          <button onclick="deletePlayer(${p.id})">🗑️</button>
+          <button onclick="requestPhotoForPlayer(${p.id})">📸 Фото</button>
+        </div>
+      </div>
     </div>`;
   });
   container.innerHTML = html;
-  players.forEach(p => {
-  const readiness = calculateReadiness(p);
-  const photoHtml = p.photo 
-    ? `<img src="${p.photo}" alt="photo" style="width:60px;height:60px;border-radius:50%;object-fit:cover;margin-right:10px;">` 
-    : `<div style="width:60px;height:60px;border-radius:50%;background:#444;display:inline-flex;align-items:center;justify-content:center;margin-right:10px;">📷</div>`;
-  
-  html += `
-  <div class="card">
-    <div style="display:flex;align-items:center;">
-      ${photoHtml}
-      <div>
-        <strong>${p.name}</strong> (${p.position})<br>
-        <small>${getAgeGroup(p.birth)} | Хват: ${p.stick}</small>
-        <div class="progress-bar"><div class="progress-fill" style="width:${readiness}%"></div></div>
-        <div>Готовность: ${readiness}%</div>
-        <button onclick="editPlayer(${p.id})">✏️</button>
-        <button onclick="deletePlayer(${p.id})">🗑️</button>
-        <button onclick="requestPhotoForPlayer(${p.id})">📸 Фото</button>
-      </div>
-    </div>
-  </div>`;
-});
 }
 
 function addPlayerPrompt() {
@@ -232,7 +254,6 @@ function addPlayerPrompt() {
   const stick = prompt('Хват (левый/правый):');
   const weight = +prompt('Вес (кг):');
   const height = +prompt('Рост (см):');
-  // Простейшие тесты
   const speed = +prompt('Бег 30 м (сек):');
   const strength = +prompt('Жим лёжа (кг):');
   const endurance = +prompt('Челночный бег (сек):');
@@ -249,6 +270,7 @@ function addPlayerPrompt() {
     stick,
     weight,
     height,
+    photo: null,
     tests: { speed, strength, endurance, skating, shooting, technique, flexibility, physique }
   };
   players.push(newPlayer);
@@ -260,12 +282,12 @@ function addPlayerPrompt() {
 function editPlayer(id) {
   const p = players.find(p => p.id === id);
   if (!p) return;
-  // Для краткости: вызов prompt для каждого поля (как в add). В реальном приложении лучше форма.
   const name = prompt('ФИО:', p.name);
   if (name) p.name = name;
   const weight = +prompt('Вес:', p.weight);
   if (!isNaN(weight)) p.weight = weight;
-  // ... аналогично остальные поля. Перезаписываем tests.
+  const height = +prompt('Рост:', p.height);
+  if (!isNaN(height)) p.height = height;
   const speed = +prompt('Бег 30м:', p.tests.speed);
   if (!isNaN(speed)) p.tests.speed = speed;
   const strength = +prompt('Жим:', p.tests.strength);
@@ -282,7 +304,7 @@ function editPlayer(id) {
   if (!isNaN(flexibility)) p.tests.flexibility = flexibility;
   const physique = +prompt('Телосложение:', p.tests.physique);
   if (!isNaN(physique)) p.tests.physique = physique;
-  // Обновляем birth, position, stick при необходимости
+  // хват и позицию можно редактировать аналогично, для простоты опускаем
   saveData();
   updateUI();
   showToast('Данные обновлены');
@@ -322,7 +344,6 @@ function drawRadar() {
   const values = player.tests;
   const group = getAgeGroup(player.birth);
   const norms = fhrNorms[group];
-  // Нормализация значений
   const data = categories.map(cat => {
     const keyMap = { 'Скорость':'speed', 'Сила':'strength', 'Выносливость':'endurance', 'Катание':'skating', 'Броски':'shooting', 'Техника':'technique', 'Гибкость':'flexibility', 'Телосложение':'physique' };
     const key = keyMap[cat];
@@ -331,7 +352,7 @@ function drawRadar() {
     if (['speed','endurance'].includes(key)) return (norm / val) * 100;
     return (val / norm) * 100;
   });
-  const normData = categories.map(() => 100); // эталон 100%
+  const normData = categories.map(() => 100);
 
   ctx.clearRect(0,0,300,300);
   const drawPolygon = (data, color) => {
@@ -348,10 +369,9 @@ function drawRadar() {
     ctx.fill();
     ctx.stroke();
   };
-  drawPolygon(normData, '#4caf50'); // эталон
-  drawPolygon(data, '#e53935');     // игрок
+  drawPolygon(normData, '#4caf50');
+  drawPolygon(data, '#e53935');
 
-  // Подписи
   ctx.fillStyle = '#fff';
   ctx.font = '10px sans-serif';
   categories.forEach((cat, i) => {
@@ -367,7 +387,6 @@ function renderLines(container) {
   const forwards = players.filter(p => p.position === 'нападающий');
   const defs = players.filter(p => p.position === 'защитник');
   let html = '<div class="card"><h2>Рекомендуемые сочетания</h2>';
-  // Простая логика: ищем лучшую тройку ЛХ-ПХ-ЛХ или ПХ-ЛХ-ПХ
   const bestTrio = findBestTrio(forwards);
   if (bestTrio) {
     html += `<p><strong>Ударное звено:</strong> ${bestTrio.map(p => `${p.name} (${p.stick[0].toUpperCase()}${p.stick.slice(1)} хват)`).join(' – ')}</p>`;
@@ -382,7 +401,6 @@ function renderLines(container) {
 
 function findBestTrio(forwards) {
   if (forwards.length < 3) return null;
-  // Ищем оптимальное сочетание с чередованием хвата
   const combos = [];
   for (let i=0; i<forwards.length; i++) {
     for (let j=0; j<forwards.length; j++) {
@@ -390,14 +408,13 @@ function findBestTrio(forwards) {
       for (let k=0; k<forwards.length; k++) {
         if (k===i || k===j) continue;
         const sticks = [forwards[i].stick, forwards[j].stick, forwards[k].stick];
-        if (sticks[0] !== sticks[1] && sticks[1] !== sticks[2]) { // чередование
+        if (sticks[0] !== sticks[1] && sticks[1] !== sticks[2]) {
           combos.push([forwards[i], forwards[j], forwards[k]]);
         }
       }
     }
   }
   if (combos.length === 0) return null;
-  // Выбираем с наивысшей суммой готовности
   let best = combos[0];
   let bestScore = 0;
   combos.forEach(trio => {
@@ -412,7 +429,6 @@ function findBestTrio(forwards) {
 
 function findBestDefPair(defs) {
   if (defs.length < 2) return null;
-  // левый + правый хват
   for (let i=0; i<defs.length; i++) {
     for (let j=i+1; j<defs.length; j++) {
       if (defs[i].stick !== defs[j].stick) return [defs[i], defs[j]];
@@ -435,27 +451,7 @@ function generateTestPlan() {
   const plan = `План тестирования:\n1 день: Разминка 15 мин, бег 30м, челночный бег, заминка.\n2 день: Жим лёжа, приседания, подтягивания.\n3 день: Катание, броски, гибкость.`;
   alert(plan);
 }
-document.getElementById('photoInput').addEventListener('change', async (event) => {
-  const file = event.target.files[0];
-  if (!file) return;
-  try {
-    const compressedDataUrl = await compressImage(file, 400, 400, 0.7); // фото 400x400
-    const playerId = currentEditingPlayerId;
-    if (playerId) {
-      const player = players.find(p => p.id === playerId);
-      if (player) {
-        player.photo = compressedDataUrl;
-        saveData();
-        updateUI();
-        showToast('Фото обновлено');
-      }
-    }
-  } catch (err) {
-    showToast('Ошибка загрузки фото: ' + err.message);
-  }
-  // Очищаем поле, чтобы можно было повторно выбрать тот же файл
-  event.target.value = '';
-});
+
 // ================== ИНИЦИАЛИЗАЦИЯ ==================
 document.addEventListener('DOMContentLoaded', () => {
   seedDemoData();
@@ -463,11 +459,5 @@ document.addEventListener('DOMContentLoaded', () => {
     btn.addEventListener('click', () => switchTab(btn.dataset.tab));
   });
   document.getElementById('loginBtn').addEventListener('click', simulateAuth);
-  // Кнопка выхода появится в authBlock динамически, для простоты добавим в разметку:
-  // (обновим HTML)
   updateUI();
-  function requestPhotoForPlayer(id) {
-  currentEditingPlayerId = id;
-  document.getElementById('photoInput').click();
-}
 });
