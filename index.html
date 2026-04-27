@@ -11,7 +11,9 @@
   <link rel="apple-touch-icon" href="icons/icon-192.png">
 </head>
 <body>
+  <!-- Скрытое поле для загрузки фото -->
   <input type="file" id="photoInput" accept="image/*" capture="environment" style="display:none">
+
   <header>
     <h1>🏒 Hockey Coach</h1>
     <nav id="tabs">
@@ -23,19 +25,12 @@
     <div id="authBlock">
       <button id="loginBtn">Войти / Регистрация</button>
       <span id="userEmail"></span>
-<button id="logoutBtn" class="hidden" onclick="logout()">Выйти</button>
+      <button id="logoutBtn" class="hidden" onclick="logout()">Выйти</button>
     </div>
   </header>
 
   <main id="content"></main>
 
   <script src="app.js"></script>
-  <script>
-    if ('serviceWorker' in navigator) {
-      window.addEventListener('load', () => {
-        navigator.serviceWorker.register('sw.js').catch(err => console.error('SW failed:', err));
-      });
-    }
-  </script>
 </body>
 </html>
