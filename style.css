@@ -58,6 +58,10 @@ nav button.active {
   padding: 0.3rem 1rem;
   border-radius: 5px;
   cursor: pointer;
+  margin-left: 5px;
+}
+.hidden {
+  display: none;
 }
 main {
   flex: 1;
@@ -84,9 +88,6 @@ button {
 }
 button:hover {
   opacity: 0.8;
-}
-.hidden {
-  display: none;
 }
 input, select, textarea {
   background: #2c2c2c;
