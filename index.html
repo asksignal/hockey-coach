@@ -23,13 +23,26 @@
       <button data-tab="train">Тренировки</button>
     </nav>
     <div id="authBlock">
-      <button id="loginBtn">Войти / Регистрация</button>
-      <span id="userEmail"></span>
-      <button id="logoutBtn" class="hidden" onclick="logout()">Выйти</button>
+      <!-- Форма входа / регистрации -->
+      <div id="authForm" style="display: none;">
+        <input type="email" id="authEmail" placeholder="Email">
+        <input type="password" id="authPassword" placeholder="Пароль">
+        <button id="signUpBtn">Регистрация</button>
+        <button id="signInBtn">Войти</button>
+      </div>
+      <div id="userInfo" style="display: none;">
+        <span id="userEmail"></span>
+        <button id="logoutBtn" onclick="logout()">Выйти</button>
+      </div>
     </div>
   </header>
 
   <main id="content"></main>
+
+  <!-- Firebase SDKs -->
+  <script src="https://www.gstatic.com/firebasejs/10.11.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.11.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.11.0/firebase-firestore-compat.js"></script>
 
   <script src="app.js"></script>
 </body>
