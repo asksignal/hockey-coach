@@ -7,19 +7,27 @@
 
 /*********************** FIREBASE ИНИЦИАЛИЗАЦИЯ *************************/
 // 🔥 ВСТАВЬТЕ СЮДА КОНФИГУРАЦИЮ ИЗ КОНСОЛИ FIREBASE 🔥
+// Import the functions you need from the SDKs you need
+import { initializeApp } from "firebase/app";
+import { getAnalytics } from "firebase/analytics";
+// TODO: Add SDKs for Firebase products that you want to use
+// https://firebase.google.com/docs/web/setup#available-libraries
+
+// Your web app's Firebase configuration
+// For Firebase JS SDK v7.20.0 and later, measurementId is optional
 const firebaseConfig = {
-  apiKey: "AIzaSy...",
-  authDomain: "your-project.firebaseapp.com",
-  projectId: "your-project",
-  storageBucket: "your-project.appspot.com",
-  messagingSenderId: "123456789",
-  appId: "1:123456789:web:abc123..."
+  apiKey: "AIzaSyARbCba06OX01T4CV9NooOU21vWo2LI72g",
+  authDomain: "hockey-coach-162cb.firebaseapp.com",
+  projectId: "hockey-coach-162cb",
+  storageBucket: "hockey-coach-162cb.firebasestorage.app",
+  messagingSenderId: "758328720863",
+  appId: "1:758328720863:web:b84afdbd31224d8591986a",
+  measurementId: "G-CZ6DJK53TK"
 };
 
-// Инициализация Firebase
-firebase.initializeApp(firebaseConfig);
-const auth = firebase.auth();
-const db = firebase.firestore();
+// Initialize Firebase
+const app = initializeApp(firebaseConfig);
+const analytics = getAnalytics(app);
 
 /*********************** ГЛОБАЛЬНОЕ СОСТОЯНИЕ ***************************/
 let players = []; // Теперь это локальный кэш данных из Firestore
